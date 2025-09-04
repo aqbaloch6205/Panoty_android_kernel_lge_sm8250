@@ -1349,10 +1349,6 @@ static ssize_t set_forced_headset_type(struct kobject *obj,
 
     es9218p_sabre_bypass2hifi();
 
-    // When calling set to advanced or aux mode, reset avc volume register to 0
-    if(input_val >= 1) {
-        es9218_set_avc_volume(g_es9218_priv->i2c_client, 0);
-    }
     return count;
 }
 static ssize_t get_forced_headset_type(struct kobject *obj,
@@ -1391,7 +1387,7 @@ static ssize_t get_forced_avc_volume(struct kobject *obj,
 {
     return sprintf(buf, "%i\n", g_avc_volume);
 }
-static __maybe_unused LGE_ATTR(avc_volume, S_IWUSR|S_IRUGO, get_forced_avc_volume, set_forced_avc_volume);
+static DEVICE_ATTR(avc_volume, S_IWUSR|S_IRUGO, get_forced_avc_volume, set_forced_avc_volume);
 
 static struct attribute *es9218_attrs[] = {
 #ifdef CONFIG_SND_SOC_LGE_ESS_DIGITAL_FILTER
@@ -1400,7 +1396,7 @@ static struct attribute *es9218_attrs[] = {
 #endif
     &dev_attr_registers.attr,
     &dev_attr_headset_type.attr,
-    // &dev_attr_avc_volume.attr,
+    &dev_attr_avc_volume.attr,
     NULL
 };
 
