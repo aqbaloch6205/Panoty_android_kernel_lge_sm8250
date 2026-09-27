@@ -12,10 +12,10 @@ if [ -z "$1" ]; then
     echo "Error: No argument provided, please specific a target device." 
     echo "If you need KernelSU, please add [ksu] as the second arg."
     echo "Examples:"
-    echo "Build for timelm without KernelSU:"
-    echo "    bash build.sh timelm"
-    echo "Build for timelm with KernelSU:"
-    echo "    bash build.sh timelm ksu"
+    echo "Build for panoty without KernelSU:"
+    echo "    bash build.sh panoty"
+    echo "Build for panoty with KernelSU:"
+    echo "    bash build.sh panoty ksu"
     exit 1
 fi
 
@@ -46,9 +46,11 @@ export CCACHE_SLOPPINESS=time_macros,include_file_mtime,include_file_ctime
 echo "CCACHE_DIR: [$CCACHE_DIR]"
 
 # Export Build Info
-export KBUILD_BUILD_USER="kiyomi"
-export KBUILD_BUILD_HOST="yuki"
-export KBUILD_BUILD_TIMESTAMP=$(TZ="Japan" date)
+export KBUILD_BUILD_USER="Panoty"
+export KBUILD_BUILD_HOST="panoty"
+export KBUILD_BUILD_TIMESTAMP=$(TZ="Asia/Karachi" date)
+
+
 
 MAKE_ARGS="ARCH=arm64 \
            SUBARCH=arm64 \
@@ -110,8 +112,8 @@ fi
 rm -rf out/
 rm -rf anykernel/
 
-echo "Clone AnyKernel3 for packing kernel (repo: https://github.com/kiy017/AnyKernel3)"
-git clone https://github.com/kiy017/AnyKernel3.git -b master --single-branch --depth=1 anykernel
+echo "Clone AnyKernel3 for packing Panoty-kernel"
+git clone https://github.com/aqbaloch6205/AnyKernel3.git -b master --single-branch --depth=1 anykernel
 
 # ------------- Building Kernel -------------
 
@@ -289,7 +291,7 @@ cp out/arch/arm64/boot/dtb anykernel/
 
 cd anykernel 
 
-ZIP_FILENAME=kiyo_${TARGET_DEVICE}_${KSU_ZIP_STR}_$(date +'%Y%m%d_%H%M%S')_anykernel3.zip
+ZIP_FILENAME=Panoty_${TARGET_DEVICE}_${KSU_ZIP_STR}_$(date +'%Y%m%d_%H%M%S')_anykernel3.zip
 
 zip -r9 $ZIP_FILENAME ./* -x .git .gitignore out/ ./*.zip
 

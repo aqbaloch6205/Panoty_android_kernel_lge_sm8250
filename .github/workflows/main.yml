@@ -6,10 +6,10 @@ on:
       device:
         description: 'Target Device Codename'
         required: true
-        default: 'timelm'
+        default: 'panoty'
         type: choice
         options:
-          - timelm
+          - panoty
           - nethunter
           - evox
           - infinityx
