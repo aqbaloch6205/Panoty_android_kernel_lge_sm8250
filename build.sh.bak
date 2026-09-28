@@ -45,8 +45,8 @@ export KBUILD_BUILD_USER="Panoty"
 export KBUILD_BUILD_HOST="Abdul-Qadeer"
 export KBUILD_BUILD_TIMESTAMP=$(TZ="Asia/Karachi" date)
 
-# High-Performance Compiler Flags for Max FPS & Stability
-OPTIMIZATION_FLAGS="-O3 -fgraphite -fopenmp -fvectorize -fomit-frame-pointer -fstrict-aliasing -Wno-error"
+# Export Optimization Flags Directly
+export KCFLAGS="-O3 -fgraphite -fopenmp -fvectorize -fomit-frame-pointer -fstrict-aliasing -Wno-error"
 
 MAKE_ARGS="ARCH=arm64 \
            SUBARCH=arm64 \
@@ -59,9 +59,7 @@ MAKE_ARGS="ARCH=arm64 \
            NM=llvm-nm \
            OBJCOPY=llvm-objcopy \
            OBJDUMP=llvm-objdump \
-           STRIP=llvm-strip \
-           KCFLAGS=\"$OPTIMIZATION_FLAGS\""
-
+           STRIP=llvm-strip"
 
 if [ "$1" == "j1" ]; then
     make $MAKE_ARGS -j1
@@ -280,9 +278,13 @@ cp out/arch/arm64/boot/dtb anykernel/
 
 cd anykernel 
 
+# Safely purge 'out' directory inside AnyKernel if present to prevent bloated zip size
+rm -rf out
+
 ZIP_FILENAME=Panoty_${TARGET_DEVICE}_${KSU_ZIP_STR}_$(date +'%Y%m%d_%H%M%S')_anykernel3.zip
 
-zip -r9 $ZIP_FILENAME ./* -x .git .gitignore out/ ./*.zip
+# Clean compression without extra folders
+zip -r9 $ZIP_FILENAME ./* -x ".git/*" ".gitignore" "*.zip"
 
 mv $ZIP_FILENAME ../
 

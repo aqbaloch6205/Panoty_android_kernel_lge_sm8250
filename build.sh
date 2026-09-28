@@ -46,7 +46,7 @@ export KBUILD_BUILD_HOST="Abdul-Qadeer"
 export KBUILD_BUILD_TIMESTAMP=$(TZ="Asia/Karachi" date)
 
 # Export Optimization Flags Directly
-export KCFLAGS="-O3 -fgraphite -fopenmp -fvectorize -fomit-frame-pointer -fstrict-aliasing -Wno-error"
+export KCFLAGS="-O3 -fopenmp -fvectorize -fomit-frame-pointer -fstrict-aliasing -Wno-error"
 
 MAKE_ARGS="ARCH=arm64 \
            SUBARCH=arm64 \
