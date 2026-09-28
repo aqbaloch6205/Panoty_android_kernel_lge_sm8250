@@ -139,9 +139,7 @@ fi
 
 scripts/config --file out/.config \
     -e REKERNEL \
-    -e REKERNEL_NETWORK \
-    -e TRACING \
-    -e BPF_EVENTS
+    -e REKERNEL_NETWORK
 
 make $MAKE_ARGS -j$(nproc)
 
