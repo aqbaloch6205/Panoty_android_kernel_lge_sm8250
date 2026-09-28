@@ -2287,10 +2287,3 @@ static int __init bpf_event_init(void)
 fs_initcall(bpf_event_init);
 #endif /* CONFIG_MODULES */
 
-#ifndef CONFIG_BPF_EVENTS
-const struct bpf_func_proto *
-tracing_prog_func_proto(enum bpf_func_id func_id, const struct bpf_prog *prog)
-{
-	return NULL;
-}
-#endif
