@@ -60,7 +60,8 @@ MAKE_ARGS="ARCH=arm64 \
            OBJCOPY=llvm-objcopy \
            OBJDUMP=llvm-objdump \
            STRIP=llvm-strip \
-           KCFLAGS=$OPTIMIZATION_FLAGS"
+           KCFLAGS=\"$OPTIMIZATION_FLAGS\""
+
 
 if [ "$1" == "j1" ]; then
     make $MAKE_ARGS -j1
