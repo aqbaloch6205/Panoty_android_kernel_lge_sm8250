@@ -1,11 +1,9 @@
 #!/bin/bash
 
-# Some logics of this script are copied from [scripts/build_kernel]. Thanks to UtsavBalar1231.
-
 # Ensure the script exits on error
 set -e
 
-TOOLCHAIN_PATH=$HOME/toolchain/bin
+TOOLCHAIN_PATH=$HOME/zyc-clang/bin
 TARGET_DEVICE=$1
 
 if [ -z "$1" ]; then
@@ -18,8 +16,6 @@ if [ -z "$1" ]; then
     echo "    bash build.sh panoty ksu"
     exit 1
 fi
-
-
 
 if [ ! -d $TOOLCHAIN_PATH ]; then
     echo "TOOLCHAIN_PATH [$TOOLCHAIN_PATH] does not exist."
@@ -35,7 +31,6 @@ if ! command -v clang >/dev/null 2>&1; then
     exit 1
 fi
 
-
 # Enable ccache for speed up compiling 
 export CCACHE_DIR="$HOME/.cache/ccache_mikernel" 
 export CC="clang"
@@ -47,10 +42,8 @@ echo "CCACHE_DIR: [$CCACHE_DIR]"
 
 # Export Build Info
 export KBUILD_BUILD_USER="Panoty"
-export KBUILD_BUILD_HOST="panoty"
+export KBUILD_BUILD_HOST="Abdul-Qadeer"
 export KBUILD_BUILD_TIMESTAMP=$(TZ="Asia/Karachi" date)
-
-
 
 MAKE_ARGS="ARCH=arm64 \
            SUBARCH=arm64 \
@@ -64,7 +57,6 @@ MAKE_ARGS="ARCH=arm64 \
            OBJCOPY=llvm-objcopy \
            OBJDUMP=llvm-objdump \
            STRIP=llvm-strip"
-
 
 if [ "$1" == "j1" ]; then
     make $MAKE_ARGS -j1
@@ -83,24 +75,21 @@ if [ ! -f "arch/arm64/configs/${TARGET_DEVICE}_defconfig" ]; then
     exit 1
 fi
 
-
-# Check clang is existing.
+# Check clang version
 echo "[clang --version]:"
 clang --version
-
-
 
 KSU_ZIP_STR=NoKernelSU
 if [ "$2" == "ksu" ]; then
     KSU_ENABLE=1
-    KSU_ZIP_STR=ReSukiSU-SuSFS
+    KSU_ZIP_STR=ReSukiSU-SuSFS-KPM
 else
     KSU_ENABLE=0
 fi
 
-
 echo "TARGET_DEVICE: $TARGET_DEVICE"
 
+# Dev's original KSU setup logic
 if [ $KSU_ENABLE -eq 1 ]; then
     echo "KSU is enabled"
     curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash
@@ -115,7 +104,7 @@ rm -rf anykernel/
 echo "Clone AnyKernel3 for packing Panoty-kernel"
 git clone https://github.com/aqbaloch6205/AnyKernel3.git -b master --single-branch --depth=1 anykernel
 
-# ------------- Building Kernel -------------
+# ------------- Building Kernel (Dev's Exact Logic) -------------
 
 echo "Building Kernel......"
 make $MAKE_ARGS ${TARGET_DEVICE}_defconfig
@@ -159,37 +148,43 @@ else
     exit 1
 fi
 
-# Patch Kernel For KPM Support
-
+# --- KPM PATCHING (FIXED ORDER: Patch Image before merging DTB) ---
 if [ $KSU_ENABLE -eq 1 ]; then
+    echo "Applying KPM patch via patch_linux..."
     cd out/arch/arm64/boot/
-    wget https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/download/0.13.0/patch_linux
+    wget -q https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/download/0.13.0/patch_linux
     chmod +x patch_linux
     ./patch_linux
-    rm Image
-    mv oImage Image
+    if [ -f "oImage" ]; then
+        rm Image
+        mv oImage Image
+        rm -f patch_linux
+        echo "KPM patch successful!"
+    else
+        echo "KPM patch failed!"
+        exit 1
+    fi
     cd -
 fi
-echo " KPM patch successful"
+
 echo "Generating [out/arch/arm64/boot/dtb]......"
-find out/arch/arm64/boot/dts -name '*.dtb' -exec cat {} + >out/arch/arm64/boot/dtb
+find out/arch/arm64/boot/dts -name '*.dtb' -exec cat {} + > out/arch/arm64/boot/dtb
 
 rm -rf anykernel/kernels/
 
-# Genrate Image-dtb
+# Dev's Logic: Merge Patched Image + DTBs into Image-dtb
 if [ ! -f "out/arch/arm64/boot/Image.gz" ] && [ -f "out/arch/arm64/boot/Image" ]; then
-    echo "Merging Image.gz and compiled DTBs into integrated image..."
+    echo "Merging Image and compiled DTBs into integrated image..."
     cat out/arch/arm64/boot/Image $(find out/arch/arm64/boot/dts/ -name "*.dtb") > out/arch/arm64/boot/Image-dtb
     echo "Generated integrated Image-dtb binary!"
 fi
 
-# Fix and copy modules
+# Dev's exact Module processing logic
 if grep -q "CONFIG_MODULES=y" "out/.config"; then
     echo "Compiling and installing modules..."
     MODULES_OUT="$(pwd)/out/modules_out"
     rm -rf "$MODULES_OUT"
     
-#Specify Modules path
     make $MAKE_ARGS INSTALL_MOD_PATH="$MODULES_OUT" modules_install
 
     if [ -d "$MODULES_OUT/lib/modules" ]; then
@@ -198,42 +193,33 @@ if grep -q "CONFIG_MODULES=y" "out/.config"; then
         FLAT_STAGE="$MODULES_OUT/flat_modules"
         mkdir -p "$FLAT_STAGE"
 
-        # Rename audio Modules
         find "$TARGET_KV_DIR/kernel/techpack/audio" -name "*.ko" 2>/dev/null | while read -r audio_mod; do
             base_name=$(basename "$audio_mod" ".ko")
             if [ "$base_name" = "machine_dlkm" ]; then
                 cp "$audio_mod" "$FLAT_STAGE/audio_machine_kona.ko"
             else
-                # Strip _dlkm suffix if present and prepend audio_
                 clean_name=$(echo "$base_name" | sed 's/_dlkm//')
                 cp "$audio_mod" "$FLAT_STAGE/audio_${clean_name}.ko"
             fi
         done
 
-        # Reaname Wifi Module
         if [ -f "$TARGET_KV_DIR/kernel/drivers/staging/qcacld-3.0/wlan.ko" ]; then
             cp "$TARGET_KV_DIR/kernel/drivers/staging/qcacld-3.0/wlan.ko" "$FLAT_STAGE/qca_cld3_qca6390.ko"
         fi
 
-        #Gather any remaining compiled system driver binaries
         find "$TARGET_KV_DIR/kernel" -name "*.ko" ! -path "*qcacld-3.0*" ! -path "*techpack/audio*" | while read -r misc_mod; do
             base_name=$(basename "$misc_mod")
             cp "$misc_mod" "$FLAT_STAGE/$base_name"
         done
 
-        # Clean out original upstream nested kernel directory structures
         rm -rf "$TARGET_KV_DIR/kernel"
         rm -f "$TARGET_KV_DIR"/source "$TARGET_KV_DIR"/build
 
-        # Swap corrected, flattened files directly into module execution root
         mv "$FLAT_STAGE"/* "$TARGET_KV_DIR/"
         rm -rf "$FLAT_STAGE"
 
-        # Set file permissions 
         find "$TARGET_KV_DIR" -name "*.ko" -type f -exec chmod 644 {} +
 
-        # Genrate modules.dep
-        echo "Injecting verified stock modules.dep layout..."
         cat << 'EOF' > "$TARGET_KV_DIR/modules.dep"
 /vendor/lib/modules/audio_adsp_loader.ko: /vendor/lib/modules/audio_apr.ko /vendor/lib/modules/audio_q6_notifier.ko /vendor/lib/modules/audio_q6_pdr.ko /vendor/lib/modules/audio_snd_event.ko
 /vendor/lib/modules/audio_stub.ko:
@@ -277,7 +263,6 @@ EOF
 
         touch "$TARGET_KV_DIR/modules.alias" "$TARGET_KV_DIR/modules.softdep"
         
-        # Copy Modules to Anykernel Directory
         echo "Copying Modules into AnyKernel modules directory..."
         cp -r "$TARGET_KV_DIR"/* anykernel/modules/vendor/lib/modules/
         chmod 644 anykernel/modules/vendor/lib/modules/*
@@ -287,7 +272,6 @@ fi
 
 cp out/arch/arm64/boot/Image-dtb anykernel/
 cp out/arch/arm64/boot/dtb anykernel/
-
 
 cd anykernel 
 

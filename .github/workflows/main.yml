@@ -1,4 +1,4 @@
-name: Build Kernel
+name: Build Kernel (ZyC-Clang + ReSukiSU + KPM)
 
 on:
   workflow_dispatch:
@@ -23,14 +23,14 @@ on:
           - build.sh
 
       ksu:
-        description: 'Enable KernelSU (ReSukiSU-SuSFS)'
+        description: 'Enable KernelSU (ReSukiSU-SuSFS-KPM)'
         required: true
         type: boolean
         default: true
 
 jobs:
   build:
-    name: Build Kernel for ${{ inputs.device }} (${{ inputs.script }}) (${{ inputs.ksu && 'KSU' || 'NoKSU' }})
+    name: Build Kernel for ${{ inputs.device }} (${{ inputs.ksu && 'KSU' || 'NoKSU' }})
     runs-on: ubuntu-latest
 
     steps:
@@ -49,43 +49,54 @@ jobs:
     - name: Install Dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential git curl wget bison flex zip bc cpio libssl-dev ccache python-is-python3
+        sudo apt-get install -y build-essential git curl wget bison flex zip bc cpio libssl-dev ccache python-is-python3 tar
+
+    - name: Set Short Commit SHA
+      id: vars
+      run: echo "SHORT_SHA=$(echo ${GITHUB_SHA} | cut -c1-8)" >> $GITHUB_ENV
 
     - name: Setup Cache (ccache)
       uses: actions/cache@v5
       with:
         path: ~/.cache/ccache_mikernel
-        key: kernel-ccache-${{ inputs.device }}-${{ inputs.script }}-${{ github.run_id }}
+        key: kernel-ccache-${{ inputs.device }}-${{ inputs.script }}-${{ inputs.ksu }}-${{ env.SHORT_SHA }}
         restore-keys: |
-          kernel-ccache-${{ inputs.device }}-${{ inputs.script }}-
+          kernel-ccache-${{ inputs.device }}-${{ inputs.script }}-${{ inputs.ksu }}-
           kernel-ccache-${{ inputs.device }}-
           kernel-ccache-
 
-    - name: Download and Extract Android NDK 
+    - name: Download and Setup ZyC-Clang 16 Toolchain
       run: |
-        curl -LO https://dl.google.com/android/repository/android-ndk-r27c-linux.zip
-        unzip -q android-ndk-r27c-linux.zip "android-ndk-r27c/toolchains/llvm/prebuilt/linux-x86_64/*"
-        mkdir -p $HOME/toolchain
-        mv android-ndk-r27c/toolchains/llvm/prebuilt/linux-x86_64/* $HOME/toolchain/
-        rm -rf android-ndk-r27c-linux.zip android-ndk-r27c
+        mkdir -p $HOME/zyc-clang
+        cd $HOME/zyc-clang
+        wget -q https://github.com/ZyCromerZ/Clang/releases/download/16.0.6-20260510-release/Clang-16.0.6-20260510.tar.gz
+        tar -zxvf Clang-16.0.6-20260510.tar.gz
+        rm -f Clang-16.0.6-20260510.tar.gz
+        echo "$HOME/zyc-clang/bin" >> $GITHUB_PATH
 
     - name: Build Kernel
       run: |
-        chmod +x build.sh
+        chmod +x ${{ inputs.script }}
         
-        echo "Using script: ${{ inputs.script }}"
+        echo "Executing script: ${{ inputs.script }} for device: ${{ inputs.device }}"
 
         if [ "${{ inputs.ksu }}" == "true" ]; then
-          echo "Building with KernelSU..."
+          echo "Building with ReSukiSU + SuSFS + KPM..."
           bash ${{ inputs.script }} ${{ inputs.device }} ksu
         else
-          echo "Building without KernelSU..."
+          echo "Building standard kernel without KernelSU..."
           bash ${{ inputs.script }} ${{ inputs.device }}
         fi
+
+    - name: Show ccache stats
+      run: ccache -s
 
     - name: Upload Artifacts
       uses: actions/upload-artifact@v6
       with:
-        name: Kernel-${{ inputs.device }}-${{ inputs.script }}-${{ inputs.ksu && 'KSU' || 'NoKSU' }}-${{ github.run_number }}
-        path: ./*.zip
+        name: Kernel-${{ inputs.device }}-${{ inputs.ksu && 'ReSukiSU-KPM' || 'NoKSU' }}-${{ github.run_number }}
+        path: |
+          *.zip
+          out/arch/arm64/boot/Image*
+          out/arch/arm64/boot/dtb*
         if-no-files-found: error
