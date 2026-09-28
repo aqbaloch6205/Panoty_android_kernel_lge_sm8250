@@ -12,7 +12,10 @@ static char updated_command_line[COMMAND_LINE_SIZE];
 static void proc_cmdline_set(char *name, char *value)
 {
 	char *flag_pos, *flag_after;
-	char *flag_pos_str = kmalloc(sizeof(char), COMMAND_LINE_SIZE);
+	char *flag_pos_str = kmalloc(COMMAND_LINE_SIZE, GFP_KERNEL);
+	if (!flag_pos_str)
+		return;
+
 	scnprintf(flag_pos_str, COMMAND_LINE_SIZE, "%s=", name);
 	flag_pos = strstr(updated_command_line, flag_pos_str);
 	if (flag_pos) {
@@ -23,9 +26,10 @@ static void proc_cmdline_set(char *name, char *value)
 				(int)(flag_pos - updated_command_line),
 				updated_command_line, name, value, flag_after);
 	} else {
-		// flag was found, insert it
+		// flag was not found, insert it
 		scnprintf(updated_command_line, COMMAND_LINE_SIZE, "%s %s=%s", updated_command_line, name, value);
 	}
+	kfree(flag_pos_str);
 }
 
 #ifdef CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
@@ -33,8 +37,6 @@ extern struct static_key_false susfs_is_fake_cmdline_or_bootconfig_buffer_set;
 extern void susfs_spoof_cmdline_or_bootconfig(struct seq_file *m);
 #endif
 
-static int cmdline_proc_show(struct seq_file *m, void *v)
-{
 static int cmdline_proc_show(struct seq_file *m, void *v)
 {
 #ifdef CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
@@ -50,9 +52,6 @@ static int cmdline_proc_show(struct seq_file *m, void *v)
 	}
 #endif
 	seq_puts(m, updated_command_line);
-	seq_putc(m, '\n');
-	return 0;
-}
 	seq_putc(m, '\n');
 	return 0;
 }
