@@ -7,7 +7,7 @@ TOOLCHAIN_PATH=$HOME/zyc-clang/bin
 TARGET_DEVICE=$1
 
 if [ -z "$1" ]; then
-    echo "Error: No argument provided, please specific a target device." 
+    echo "Error: No argument provided, please specify a target device." 
     echo "If you need KernelSU, please add [ksu] as the second arg."
     echo "Examples:"
     echo "Build for panoty without KernelSU:"
@@ -45,6 +45,9 @@ export KBUILD_BUILD_USER="Panoty"
 export KBUILD_BUILD_HOST="Abdul-Qadeer"
 export KBUILD_BUILD_TIMESTAMP=$(TZ="Asia/Karachi" date)
 
+# High-Performance Compiler Flags for Max FPS & Stability
+OPTIMIZATION_FLAGS="-O3 -fgraphite -fopenmp -fvectorize -fomit-frame-pointer -fstrict-aliasing -Wno-error"
+
 MAKE_ARGS="ARCH=arm64 \
            SUBARCH=arm64 \
            O=out \
@@ -56,7 +59,8 @@ MAKE_ARGS="ARCH=arm64 \
            NM=llvm-nm \
            OBJCOPY=llvm-objcopy \
            OBJDUMP=llvm-objdump \
-           STRIP=llvm-strip"
+           STRIP=llvm-strip \
+           KCFLAGS=$OPTIMIZATION_FLAGS"
 
 if [ "$1" == "j1" ]; then
     make $MAKE_ARGS -j1
