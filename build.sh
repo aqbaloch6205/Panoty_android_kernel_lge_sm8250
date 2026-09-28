@@ -107,7 +107,16 @@ git clone https://github.com/aqbaloch6205/AnyKernel3.git -b master --single-bran
 # ------------- Building Kernel (Dev's Exact Logic) -------------
 
 echo "Building Kernel......"
+# Target device defconfig load karne ke baad:
 make $MAKE_ARGS ${TARGET_DEVICE}_defconfig
+
+# Touch .scmversion inside out directory as well to completely kill git dirty string
+touch out/.scmversion
+
+# Set Custom Localversion explicitly in .config
+scripts/config --file out/.config --set-str CONFIG_LOCALVERSION "-Panoty-Engine-1.6"
+scripts/config --file out/.config -d CONFIG_LOCALVERSION_AUTO
+
 
 if [ $KSU_ENABLE -eq 1 ]; then
     scripts/config --file out/.config \
