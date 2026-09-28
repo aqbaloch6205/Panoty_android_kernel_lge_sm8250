@@ -7,7 +7,7 @@ TOOLCHAIN_PATH=$HOME/zyc-clang/bin
 TARGET_DEVICE=$1
 
 if [ -z "$1" ]; then
-    echo "Error: No argument provided, please specify a target device." 
+    echo "Error: No argument provided, please specific a target device." 
     echo "If you need KernelSU, please add [ksu] as the second arg."
     echo "Examples:"
     echo "Build for panoty without KernelSU:"
@@ -44,9 +44,6 @@ echo "CCACHE_DIR: [$CCACHE_DIR]"
 export KBUILD_BUILD_USER="Panoty"
 export KBUILD_BUILD_HOST="Abdul-Qadeer"
 export KBUILD_BUILD_TIMESTAMP=$(TZ="Asia/Karachi" date)
-
-# Export Optimization Flags Directly
-export KCFLAGS="-O3 -fopenmp -fvectorize -fomit-frame-pointer -fstrict-aliasing -Wno-error"
 
 MAKE_ARGS="ARCH=arm64 \
            SUBARCH=arm64 \
