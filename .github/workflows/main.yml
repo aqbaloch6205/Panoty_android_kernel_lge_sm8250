@@ -10,6 +10,7 @@ on:
         type: choice
         options:
           - panoty
+          - panotyv2
           - nethunter
           - evox
           - infinityx
