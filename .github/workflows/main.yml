@@ -1,4 +1,3 @@
-
 name: Build Kernel (ZyC-Clang + ReSukiSU + KPM)
 
 on:
@@ -15,7 +14,7 @@ on:
           - nethunter
           - evox
           - infinityx
-
+          
       script:
         description: 'Select Build Script'
         required: true
@@ -36,93 +35,69 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Source
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 1
+    - name: Checkout Source
+      uses: actions/checkout@v6
+      with:
+        fetch-depth: 1
 
-      - name: Cleanup Disk Space
-        run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /usr/local/share/boost
-          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+    - name: Cleanup Disk Space
+      run: |
+        sudo rm -rf /usr/share/dotnet
+        sudo rm -rf /opt/ghc
+        sudo rm -rf "/usr/local/share/boost"
+        sudo rm -rf "$AGENT_TOOLSDIRECTORY"
 
-      - name: Install Dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential git curl wget bison flex zip bc cpio \
-            libssl-dev ccache python-is-python3 tar
+    - name: Install Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential git curl wget bison flex zip bc cpio libssl-dev ccache python-is-python3 tar
 
-      - name: Set Short Commit SHA
-        run: echo "SHORT_SHA=${GITHUB_SHA::8}" >> "$GITHUB_ENV"
+    - name: Set Short Commit SHA
+      id: vars
+      run: echo "SHORT_SHA=$(echo ${GITHUB_SHA} | cut -c1-8)" >> $GITHUB_ENV
 
-      - name: Setup Cache (ccache)
-        uses: actions/cache@v5
-        with:
-          path: ~/.cache/ccache_mikernel
-          key: kernel-ccache-${{ inputs.device }}-${{ inputs.script }}-${{ inputs.ksu }}-${{ env.SHORT_SHA }}
-          restore-keys: |
-            kernel-ccache-${{ inputs.device }}-${{ inputs.script }}-${{ inputs.ksu }}-
-            kernel-ccache-${{ inputs.device }}-
-            kernel-ccache-
+    - name: Setup Cache (ccache)
+      uses: actions/cache@v5
+      with:
+        path: ~/.cache/ccache_mikernel
+        key: kernel-ccache-${{ inputs.device }}-${{ inputs.script }}-${{ inputs.ksu }}-${{ env.SHORT_SHA }}
+        restore-keys: |
+          kernel-ccache-${{ inputs.device }}-${{ inputs.script }}-${{ inputs.ksu }}-
+          kernel-ccache-${{ inputs.device }}-
+          kernel-ccache-
 
-      - name: Download and Setup ZyC-Clang 16
-        shell: bash
-        run: |
-          set -euo pipefail
+    - name: Download and Setup ZyC-Clang 16 Toolchain
+      run: |
+        mkdir -p $HOME/zyc-clang
+        cd $HOME/zyc-clang
+        wget -q https://github.com/ZyCromerZ/Clang/releases/download/16.0.6-20260510-release/Clang-16.0.6-20260510.tar.gz
+        tar -zxvf Clang-16.0.6-20260510.tar.gz
+        rm -f Clang-16.0.6-20260510.tar.gz
+        echo "$HOME/zyc-clang/bin" >> $GITHUB_PATH
 
-          TOOLCHAIN_DIR="$HOME/zyc-clang"
-          TOOLCHAIN_ARCHIVE="Clang-16.0.6-20260510.tar.gz"
-          TOOLCHAIN_URL="https://github.com/ZyCromerZ/Clang/releases/download/16.0.6-20260510-release/${TOOLCHAIN_ARCHIVE}"
+    - name: Build Kernel
+      run: |
+        chmod +x ${{ inputs.script }}
+        
+        echo "Executing script: ${{ inputs.script }} for device: ${{ inputs.device }}"
 
-          mkdir -p "$TOOLCHAIN_DIR"
-          wget -q --show-progress "$TOOLCHAIN_URL" -O "/tmp/$TOOLCHAIN_ARCHIVE"
-          tar -xzf "/tmp/$TOOLCHAIN_ARCHIVE" -C "$TOOLCHAIN_DIR"
-          rm -f "/tmp/$TOOLCHAIN_ARCHIVE"
+        if [ "${{ inputs.ksu }}" == "true" ]; then
+          echo "Building with ReSukiSU + SuSFS + KPM..."
+          bash ${{ inputs.script }} ${{ inputs.device }} ksu
+        else
+          echo "Building standard kernel without KernelSU..."
+          bash ${{ inputs.script }} ${{ inputs.device }}
+        fi
 
-          if [ ! -x "$TOOLCHAIN_DIR/bin/clang" ]; then
-            echo "ERROR: Clang not found at $TOOLCHAIN_DIR/bin/clang"
-            find "$TOOLCHAIN_DIR" -maxdepth 4 -type f -name clang
-            exit 1
-          fi
+    - name: Show ccache stats
+      run: ccache -s
 
-          echo "TOOLCHAIN_PATH=$TOOLCHAIN_DIR/bin" >> "$GITHUB_ENV"
-          echo "$TOOLCHAIN_DIR/bin" >> "$GITHUB_PATH"
-
-          "$TOOLCHAIN_DIR/bin/clang" --version
-
-      - name: Build Kernel
-        shell: bash
-        env:
-          TOOLCHAIN_PATH: ${{ env.TOOLCHAIN_PATH }}
-        run: |
-          set -euo pipefail
-
-          chmod +x "${{ inputs.script }}"
-
-          echo "Device: ${{ inputs.device }}"
-          echo "Script: ${{ inputs.script }}"
-          echo "Toolchain: $TOOLCHAIN_PATH"
-
-          if [ "${{ inputs.ksu }}" = "true" ]; then
-            bash "${{ inputs.script }}" "${{ inputs.device }}" ksu
-          else
-            bash "${{ inputs.script }}" "${{ inputs.device }}"
-          fi
-
-      - name: Show ccache stats
-        if: always()
-        run: ccache -s
-
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v6
-        with:
-          name: Kernel-${{ inputs.device }}-${{ inputs.ksu && 'ReSukiSU-KPM' || 'NoKSU' }}-${{ github.run_number }}
-          path: |
-            *.zip
-            out/arch/arm64/boot/Image*
-            out/arch/arm64/boot/dtb*
-          if-no-files-found: error
-          
+    - name: Upload Artifacts
+      uses: actions/upload-artifact@v6
+      with:
+        name: Kernel-${{ inputs.device }}-${{ inputs.ksu && 'ReSukiSU-KPM' || 'NoKSU' }}-${{ github.run_number }}
+        path: |
+          *.zip
+          out/arch/arm64/boot/Image*
+          out/arch/arm64/boot/dtb*
+        if-no-files-found: error
