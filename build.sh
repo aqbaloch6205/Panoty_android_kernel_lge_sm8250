@@ -1,146 +1,163 @@
-#!/bin/bash
 
-# Some logics of this script are copied from [scripts/build_kernel]. Thanks to UtsavBalar1231.
+#!/usr/bin/env bash
 
-# Ensure the script exits on error
-set -e
+# Thunder Kernel Build Script
+# ZyC-Clang 16 + ReSukiSU + SuSFS + KPM
+# Supports: timelm, panotyv2, nethunter, evox, infinityx
 
-TOOLCHAIN_PATH=$HOME/toolchain/bin
-TARGET_DEVICE=$1
+set -Eeuo pipefail
 
-if [ -z "$1" ]; then
-    echo "Error: No argument provided, please specific a target device." 
-    echo "If you need KernelSU, please add [ksu] as the second arg."
-    echo "Examples:"
-    echo "Build for timelm without KernelSU:"
-    echo "    bash build.sh timelm"
-    echo "Build for timelm with KernelSU:"
-    echo "    bash build.sh timelm ksu"
-    exit 1
-fi
+# --------------------------------------------------
+# Configuration
+# --------------------------------------------------
 
+TARGET_DEVICE="${1:-}"
+KSU_MODE="${2:-}"
 
+TOOLCHAIN_PATH="${TOOLCHAIN_PATH:-$HOME/zyc-clang/bin}"
+export PATH="$TOOLCHAIN_PATH:/usr/lib/ccache:$PATH"
 
-if [ ! -d $TOOLCHAIN_PATH ]; then
-    echo "TOOLCHAIN_PATH [$TOOLCHAIN_PATH] does not exist."
-    echo "Please ensure the toolchain is there, or change TOOLCHAIN_PATH in the script to your toolchain path."
-    exit 1
-fi
-
-echo "TOOLCHAIN_PATH: [$TOOLCHAIN_PATH]"
-export PATH="$TOOLCHAIN_PATH:$PATH"
-
-if ! command -v clang >/dev/null 2>&1; then
-    echo "[clang] does not exist, please check your environment."
-    exit 1
-fi
-
-
-# Enable ccache for speed up compiling 
-export CCACHE_DIR="$HOME/.cache/ccache_mikernel" 
-export CC="clang"
-export CXX="clang++"
-export PATH="/usr/lib/ccache:$PATH"
+export CCACHE_DIR="${CCACHE_DIR:-$HOME/.cache/ccache_mikernel}"
 export CCACHE_COMPILERCHECK=content
 export CCACHE_SLOPPINESS=time_macros,include_file_mtime,include_file_ctime
-echo "CCACHE_DIR: [$CCACHE_DIR]"
 
-# Export Build Info
-export KBUILD_BUILD_USER="kiyomi"
-export KBUILD_BUILD_HOST="yuki"
-export KBUILD_BUILD_TIMESTAMP=$(TZ="Japan" date)
+export KBUILD_BUILD_USER="QCloudFx"
+export KBUILD_BUILD_HOST="ThunderOS"
+export KBUILD_BUILD_TIMESTAMP="$(date -u '+%a %b %d %T UTC %Y')"
 
-MAKE_ARGS="ARCH=arm64 \
-           SUBARCH=arm64 \
-           O=out \
-           CC=clang \
-           HOSTCC=clang \
-           CLANG_TRIPLE=aarch64-linux-gnu- \
-           LD=ld.lld \
-           AR=llvm-ar \
-           NM=llvm-nm \
-           OBJCOPY=llvm-objcopy \
-           OBJDUMP=llvm-objdump \
-           STRIP=llvm-strip"
+# --------------------------------------------------
+# Validation
+# --------------------------------------------------
 
-
-if [ "$1" == "j1" ]; then
-    make $MAKE_ARGS -j1
-    exit
-fi
-
-if [ "$1" == "continue" ]; then
-    make $MAKE_ARGS -j$(nproc)
-    exit
-fi
-
-if [ ! -f "arch/arm64/configs/${TARGET_DEVICE}_defconfig" ]; then
-    echo "No target device [${TARGET_DEVICE}] found."
-    echo "Avaliable defconfigs, please choose one target from below down:"
-    ls arch/arm64/configs/*_defconfig
+if [[ -z "$TARGET_DEVICE" ]]; then
+    echo "Usage: bash build.sh <device> [ksu]"
+    echo "Example: bash build.sh timelm ksu"
     exit 1
 fi
 
+if [[ ! -d "$TOOLCHAIN_PATH" ]]; then
+    echo "ERROR: Toolchain directory does not exist:"
+    echo "  $TOOLCHAIN_PATH"
+    exit 1
+fi
 
-# Check clang is existing.
-echo "[clang --version]:"
+for tool in clang clang++ ld.lld llvm-ar llvm-nm llvm-objcopy llvm-objdump llvm-strip; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+        echo "ERROR: Required tool not found: $tool"
+        exit 1
+    fi
+done
+
+if [[ ! -f "arch/arm64/configs/${TARGET_DEVICE}_defconfig" ]]; then
+    echo "ERROR: Defconfig not found:"
+    echo "  arch/arm64/configs/${TARGET_DEVICE}_defconfig"
+    echo
+    echo "Available defconfigs:"
+    find arch/arm64/configs -maxdepth 1 -name '*_defconfig' -printf '%f\n' | sort
+    exit 1
+fi
+
+echo "=========================================="
+echo " Thunder Kernel Builder"
+echo "=========================================="
+echo "Device       : $TARGET_DEVICE"
+echo "Toolchain    : $TOOLCHAIN_PATH"
+echo "KernelSU     : ${KSU_MODE:-disabled}"
+echo "=========================================="
+
 clang --version
 
+# --------------------------------------------------
+# Build arguments
+# --------------------------------------------------
 
+MAKE_ARGS=(
+    ARCH=arm64
+    SUBARCH=arm64
+    O=out
+    CC=clang
+    HOSTCC=clang
+    HOSTCXX=clang++
+    CLANG_TRIPLE=aarch64-linux-gnu-
+    LD=ld.lld
+    AR=llvm-ar
+    NM=llvm-nm
+    OBJCOPY=llvm-objcopy
+    OBJDUMP=llvm-objdump
+    STRIP=llvm-strip
+)
 
-KSU_ZIP_STR=NoKernelSU
-if [ "$2" == "ksu" ]; then
+# --------------------------------------------------
+# KernelSU setup
+# --------------------------------------------------
+
+KSU_ENABLE=0
+KSU_ZIP_STR="NoKernelSU"
+
+if [[ "$KSU_MODE" == "ksu" ]]; then
     KSU_ENABLE=1
-    KSU_ZIP_STR=ReSukiSU-SuSFS
+    KSU_ZIP_STR="ReSukiSU-SuSFS-KPM"
+
+    echo "Setting up BakaSU..."
+    curl -fLSs \
+        "https://raw.githubusercontent.com/Baka-SU/BakaSU/main/kernel/setup.sh" \
+        | bash
+
+    echo "Setting up NoMount..."
+    curl -fLSs \
+        "https://raw.githubusercontent.com/maxsteeel/nomount/refs/heads/dev/kernel/setup.sh" \
+        | bash
 else
-    KSU_ENABLE=0
+    echo "Building without KernelSU."
 fi
 
+# --------------------------------------------------
+# Prepare workspace
+# --------------------------------------------------
 
-echo "TARGET_DEVICE: $TARGET_DEVICE"
+rm -rf out anykernel
 
-if [ $KSU_ENABLE -eq 1 ]; then
-    echo "KSU is enabled"
-    curl -LSs "https://raw.githubusercontent.com/Baka-SU/BakaSU/main/kernel/setup.sh" | bash
-    curl https://raw.githubusercontent.com/maxsteeel/nomount/refs/heads/dev/kernel/setup.sh | bash
-else
-    echo "KSU is disabled"
-fi
+echo "Cloning AnyKernel3..."
 
-# Clear Previous Build
-rm -rf out/
-rm -rf anykernel/
+git clone \
+    --depth=1 \
+    --single-branch \
+    --branch master \
+    https://github.com/kiy017/AnyKernel3.git \
+    anykernel
 
-echo "Clone AnyKernel3 for packing kernel (repo: https://github.com/kiy017/AnyKernel3)"
-git clone https://github.com/kiy017/AnyKernel3.git -b master --single-branch --depth=1 anykernel
+# --------------------------------------------------
+# Configure kernel
+# --------------------------------------------------
 
-# ------------- Building Kernel -------------
+echo "Loading ${TARGET_DEVICE}_defconfig..."
 
-echo "Building Kernel......"
-make $MAKE_ARGS ${TARGET_DEVICE}_defconfig
+make "${MAKE_ARGS[@]}" "${TARGET_DEVICE}_defconfig"
 
-if [ $KSU_ENABLE -eq 1 ]; then
+if [[ "$KSU_ENABLE" -eq 1 ]]; then
+    echo "Enabling ReSukiSU + SuSFS + KPM..."
+
     scripts/config --file out/.config \
-    -e KSU \
-    -e THREAD_INFO_IN_TASK \
-    -e KSU_SUSFS \
-    -e KSU_SUSFS_SUS_PATH \
-    -e KSU_SUSFS_SUS_MOUNT \
-    -e KSU_SUSFS_SUS_KSTAT \
-    -e KSU_SUSFS_SUS_KSTAT_REDIRECT \
-    -e KSU_SUSFS_SPOOF_UNAME \
-    -e KSU_SUSFS_ENABLE_LOG \
-    -e KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
-    -e KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
-    -e KSU_SUSFS_OPEN_REDIRECT \
-    -e KSU_SUSFS_SUS_MAP \
-    -e KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT \
-    -e KSU_MULTI_MANAGER_SUPPORT \
-    -e KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT \
-    -e KPM \
-    -e TMPFS_XATTR \
-    -e TMPFS_POSIX_ACL \
-    -e NOMOUNT
+        -e KSU \
+        -e THREAD_INFO_IN_TASK \
+        -e KSU_SUSFS \
+        -e KSU_SUSFS_SUS_PATH \
+        -e KSU_SUSFS_SUS_MOUNT \
+        -e KSU_SUSFS_SUS_KSTAT \
+        -e KSU_SUSFS_SUS_KSTAT_REDIRECT \
+        -e KSU_SUSFS_SPOOF_UNAME \
+        -e KSU_SUSFS_ENABLE_LOG \
+        -e KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
+        -e KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
+        -e KSU_SUSFS_OPEN_REDIRECT \
+        -e KSU_SUSFS_SUS_MAP \
+        -e KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT \
+        -e KSU_MULTI_MANAGER_SUPPORT \
+        -e KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT \
+        -e KPM \
+        -e TMPFS_XATTR \
+        -e TMPFS_POSIX_ACL \
+        -e NOMOUNT
 else
     scripts/config --file out/.config -d KSU
 fi
@@ -149,56 +166,122 @@ scripts/config --file out/.config \
     -e REKERNEL \
     -e REKERNEL_NETWORK
 
-make $MAKE_ARGS -j$(nproc)
+# Resolve dependencies and save final configuration.
+make "${MAKE_ARGS[@]}" olddefconfig
 
-# Check if kernel image exists
-if [ -f "out/arch/arm64/boot/Image" ]; then
-    echo "The file [out/arch/arm64/boot/Image] exists. Kernel Build successfully."
-else
-    echo "The file [out/arch/arm64/boot/Image] does not exist. Seems Kernel build failed."
+# --------------------------------------------------
+# Compile kernel
+# --------------------------------------------------
+
+echo "Building kernel with $(nproc) jobs..."
+
+make "${MAKE_ARGS[@]}" -j"$(nproc)"
+
+IMAGE="out/arch/arm64/boot/Image"
+DTB_DIR="out/arch/arm64/boot/dts"
+DTB_FILE="out/arch/arm64/boot/dtb"
+IMAGE_DTB="out/arch/arm64/boot/Image-dtb"
+
+if [[ ! -s "$IMAGE" ]]; then
+    echo "ERROR: Kernel Image was not generated."
     exit 1
 fi
 
-# Patch Kernel For KPM Support
+echo "Kernel Image built successfully."
 
-if [ $KSU_ENABLE -eq 1 ]; then
-    cd out/arch/arm64/boot/
-    wget https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/download/0.13.0/patch_linux
-    chmod +x patch_linux
-    ./patch_linux
-    rm Image
-    mv oImage Image
-    cd -
-    echo " KPM patch successful"
+# --------------------------------------------------
+# Apply KPM patch
+# --------------------------------------------------
+
+if [[ "$KSU_ENABLE" -eq 1 ]]; then
+    PATCH_DIR="out/arch/arm64/boot"
+    PATCH_URL="https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/download/0.13.0/patch_linux"
+
+    echo "Downloading KPM patch..."
+
+    curl -fL "$PATCH_URL" -o "$PATCH_DIR/patch_linux"
+    chmod +x "$PATCH_DIR/patch_linux"
+
+    (
+        cd "$PATCH_DIR"
+        ./patch_linux
+    )
+
+    if [[ ! -s "$PATCH_DIR/oImage" ]]; then
+        echo "ERROR: KPM patch did not generate oImage."
+        exit 1
+    fi
+
+    mv "$PATCH_DIR/oImage" "$IMAGE"
+    rm -f "$PATCH_DIR/patch_linux"
+
+    echo "KPM patch applied successfully."
 fi
 
-echo "Generating [out/arch/arm64/boot/dtb]......"
-find out/arch/arm64/boot/dts -name '*.dtb' -exec cat {} + >out/arch/arm64/boot/dtb
+# --------------------------------------------------
+# Collect DTBs
+# --------------------------------------------------
 
-rm -rf anykernel/kernels/
-
-# Genrate Image-dtb
-if [ ! -f "out/arch/arm64/boot/Image.gz" ] && [ -f "out/arch/arm64/boot/Image" ]; then
-    echo "Merging Image and compiled DTBs into integrated image..."
-    cat out/arch/arm64/boot/Image $(find out/arch/arm64/boot/dts/ -name "*.dtb") > out/arch/arm64/boot/Image-dtb
-    echo "Generated integrated Image-dtb binary!"
+if [[ ! -d "$DTB_DIR" ]]; then
+    echo "ERROR: DTB directory not found: $DTB_DIR"
+    exit 1
 fi
 
-# NOTE: Modules are NOT packed. Only kernel image + dtb go into the zip.
+mapfile -t DTB_FILES < <(find "$DTB_DIR" -type f -name '*.dtb' | sort)
 
-cp out/arch/arm64/boot/Image-dtb anykernel/
-cp out/arch/arm64/boot/dtb anykernel/
+if [[ "${#DTB_FILES[@]}" -eq 0 ]]; then
+    echo "ERROR: No DTB files found."
+    exit 1
+fi
 
+echo "Combining ${#DTB_FILES[@]} DTB files..."
 
-cd anykernel 
+cat "${DTB_FILES[@]}" > "$DTB_FILE"
 
-ZIP_FILENAME=kiyo_${TARGET_DEVICE}_${KSU_ZIP_STR}_$(date +'%Y%m%d_%H%M%S')_anykernel3.zip
+# Always generate Image-dtb because packaging requires it.
+cat "$IMAGE" "${DTB_FILES[@]}" > "$IMAGE_DTB"
 
-zip -r9 $ZIP_FILENAME ./* -x .git .gitignore out/ ./*.zip
+if [[ ! -s "$IMAGE_DTB" || ! -s "$DTB_FILE" ]]; then
+    echo "ERROR: Image-dtb or dtb generation failed."
+    exit 1
+fi
 
-mv $ZIP_FILENAME ../
+echo "Image-dtb generated successfully."
 
-cd ..
+# --------------------------------------------------
+# Package AnyKernel3
+# --------------------------------------------------
 
-echo "Kernel Build Finished"
-echo "Done. The flashable zip is: [./$ZIP_FILENAME]"
+rm -rf anykernel/kernels
+mkdir -p anykernel/kernels
+
+cp "$IMAGE_DTB" anykernel/
+cp "$DTB_FILE" anykernel/
+
+# --------------------------------------------------
+# Create flashable ZIP
+# --------------------------------------------------
+
+ZIP_FILENAME="ThunderOS_${TARGET_DEVICE}_${KSU_ZIP_STR}_$(date +'%Y%m%d_%H%M%S').zip"
+
+echo "Creating flashable ZIP..."
+
+(
+    cd anykernel
+    zip -r9 "../$ZIP_FILENAME" . \
+        -x '.git/*' '.gitignore' '*.zip'
+)
+
+if [[ ! -s "$ZIP_FILENAME" ]]; then
+    echo "ERROR: Flashable ZIP was not generated."
+    exit 1
+fi
+
+echo "=========================================="
+echo " BUILD COMPLETED SUCCESSFULLY"
+echo "=========================================="
+echo "Device  : $TARGET_DEVICE"
+echo "Kernel  : $IMAGE"
+echo "DTB     : $DTB_FILE"
+echo "Package : $ZIP_FILENAME"
+echo "=========================================="
