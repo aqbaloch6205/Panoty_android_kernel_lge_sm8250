@@ -1,4 +1,4 @@
-name: Build Kernel
+name: Thunder Next 2.0
 
 on:
   workflow_dispatch:
@@ -13,7 +13,7 @@ on:
           - nethunter
           - evox
           - infinityx
-          
+
       script:
         description: 'Select Build Script'
         required: true
@@ -30,7 +30,7 @@ on:
 
 jobs:
   build:
-    name: Build Kernel for ${{ inputs.device }} (${{ inputs.script }}) (${{ inputs.ksu && 'KSU' || 'NoKSU' }})
+    name: Thunder Next 2.0 | ${{ inputs.device }} (${{ inputs.script }}) (${{ inputs.ksu && 'KSU' || 'NoKSU' }})
     runs-on: ubuntu-latest
 
     steps:
@@ -49,7 +49,7 @@ jobs:
     - name: Install Dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential git curl wget bison flex zip bc cpio libssl-dev ccache python-is-python3
+        sudo apt-get install -y build-essential git curl wget bison flex zip bc cpio libssl-dev libelf-dev lz4 ccache python-is-python3
 
     - name: Setup Cache (ccache)
       uses: actions/cache@v5
@@ -61,19 +61,40 @@ jobs:
           kernel-ccache-${{ inputs.device }}-
           kernel-ccache-
 
-    - name: Download and Extract Android NDK 
+    - name: Download and Setup ZyC Clang 16
       run: |
-        curl -LO https://dl.google.com/android/repository/android-ndk-r27c-linux.zip
-        unzip -q android-ndk-r27c-linux.zip "android-ndk-r27c/toolchains/llvm/prebuilt/linux-x86_64/*"
-        mkdir -p $HOME/toolchain
-        mv android-ndk-r27c/toolchains/llvm/prebuilt/linux-x86_64/* $HOME/toolchain/
-        rm -rf android-ndk-r27c-linux.zip android-ndk-r27c
+        set -euo pipefail
+
+        mkdir -p "$HOME/toolchain"
+        cd "$HOME/toolchain"
+
+        URL="https://github.com/ZyCromerZ/Clang/releases/download/16.0.6-20260510-release/Clang-16.0.6-20260510.tar.gz"
+
+        wget -q --show-progress "$URL" -O clang.tar.gz
+        tar -xzf clang.tar.gz
+        rm -f clang.tar.gz
+
+        CLANG_BIN="$(find "$HOME/toolchain" -type f -name clang -perm /111 -print -quit)"
+
+        if [ -z "$CLANG_BIN" ]; then
+          echo "::error::Clang executable not found in downloaded archive"
+          find "$HOME/toolchain" -maxdepth 3 -type f | head -100
+          exit 1
+        fi
+
+        CLANG_DIR="$(dirname "$CLANG_BIN")"
+        echo "$CLANG_DIR" >> "$GITHUB_PATH"
+        echo "CLANG_BIN=$CLANG_BIN" >> "$GITHUB_ENV"
+        echo "CLANG_PATH=$(dirname "$CLANG_DIR")" >> "$GITHUB_ENV"
+
+        "$CLANG_BIN" --version
 
     - name: Build Kernel
       run: |
-        chmod +x build.sh
-        
+        chmod +x ${{ inputs.script }}
+
         echo "Using script: ${{ inputs.script }}"
+        echo "Clang: $CLANG_BIN"
 
         if [ "${{ inputs.ksu }}" == "true" ]; then
           echo "Building with KernelSU..."
@@ -86,6 +107,7 @@ jobs:
     - name: Upload Artifacts
       uses: actions/upload-artifact@v6
       with:
-        name: Kernel-${{ inputs.device }}-${{ inputs.script }}-${{ inputs.ksu && 'KSU' || 'NoKSU' }}-${{ github.run_number }}
+        name: Thunder-Next-2.0-${{ inputs.device }}-${{ inputs.ksu && 'KSU' || 'NoKSU' }}-${{ github.run_number }}
         path: ./*.zip
         if-no-files-found: error
+        
