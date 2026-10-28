@@ -14,6 +14,11 @@
 #include <linux/export.h>
 #include <net/ndisc.h>
 #include <net/ipv6.h>
+#ifdef CONFIG_LGE_DATA_SET_OPERATOR_FOR_IPV6
+/* 2019-10-22 taegil.kim@lge.com LGP_DATA_SET_OPERATOR_FOR_IPV6 [START] */
+#include <net/ip6_route.h>
+/* 2019-10-22 taegil.kim@lge.com LGP_DATA_SET_OPERATOR_FOR_IPV6 [END] */
+#endif /* CONFIG_LGE_DATA_SET_OPERATOR_FOR_IPV6 */
 #include <net/addrconf.h>
 #include <net/inet_frag.h>
 #include <net/netevent.h>
@@ -206,11 +211,34 @@ static struct ctl_table ipv6_rotable[] = {
 	{ }
 };
 
+#ifdef CONFIG_LGE_DATA_SET_OPERATOR_FOR_IPV6
+/* 2019-10-22 taegil.kim@lge.com LGP_DATA_SET_OPERATOR_FOR_IPV6 [START] */
+int sysctl_optr;
+EXPORT_SYMBOL(sysctl_optr);
+
+static struct ctl_table net_table[] = {
+	{
+		.procname = "optr",
+		.data = &sysctl_optr,
+		.maxlen = sizeof(int),
+		.mode = 0664,
+		.proc_handler = proc_dointvec,
+	},
+	{ }
+};
+/* 2019-10-22 taegil.kim@lge.com LGP_DATA_SET_OPERATOR_FOR_IPV6 [END] */
+#endif /* CONFIG_LGE_DATA_SET_OPERATOR_FOR_IPV6 */
+
 static int __net_init ipv6_sysctl_net_init(struct net *net)
 {
 	struct ctl_table *ipv6_table;
 	struct ctl_table *ipv6_route_table;
 	struct ctl_table *ipv6_icmp_table;
+#ifdef CONFIG_LGE_DATA_SET_OPERATOR_FOR_IPV6
+/* 2019-10-22 taegil.kim@lge.com LGP_DATA_SET_OPERATOR_FOR_IPV6 [START] */
+	struct ctl_table_header *vzw_hdr;
+/* 2019-10-22 taegil.kim@lge.com LGP_DATA_SET_OPERATOR_FOR_IPV6 [END] */
+#endif /* CONFIG_LGE_DATA_SET_OPERATOR_FOR_IPV6 */
 	int err;
 
 	err = -ENOMEM;
@@ -246,7 +274,13 @@ static int __net_init ipv6_sysctl_net_init(struct net *net)
 	net->ipv6.sysctl.hdr = register_net_sysctl(net, "net/ipv6", ipv6_table);
 	if (!net->ipv6.sysctl.hdr)
 		goto out_ipv6_icmp_table;
-
+#ifdef CONFIG_LGE_DATA_SET_OPERATOR_FOR_IPV6
+/* 2019-10-22 taegil.kim@lge.com LGP_DATA_SET_OPERATOR_FOR_IPV6 [START] */
+	vzw_hdr = register_net_sysctl(net, "net", net_table);
+	if (!vzw_hdr)
+		pr_info("[ipv6 net] register net sysctl optr is fail.\n");
+/* 2019-10-22 taegil.kim@lge.com LGP_DATA_SET_OPERATOR_FOR_IPV6 [END] */
+#endif /* CONFIG_LGE_DATA_SET_OPERATOR_FOR_IPV6 */
 	net->ipv6.sysctl.route_hdr =
 		register_net_sysctl(net, "net/ipv6/route", ipv6_route_table);
 	if (!net->ipv6.sysctl.route_hdr)
