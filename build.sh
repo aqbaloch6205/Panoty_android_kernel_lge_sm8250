@@ -3,6 +3,9 @@
 # Ensure the script exits on error
 set -e
 
+KERNEL_NAME="Thunder Next Gen 2.0"
+KERNEL_ZIP_NAME="Thunder_Next_Gen_2.0"
+
 TOOLCHAIN_PATH=$HOME/zyc-clang/bin
 TARGET_DEVICE=$1
 
@@ -41,8 +44,8 @@ export CCACHE_SLOPPINESS=time_macros,include_file_mtime,include_file_ctime
 echo "CCACHE_DIR: [$CCACHE_DIR]"
 
 # Export Build Info
-export KBUILD_BUILD_USER="Panoty"
-export KBUILD_BUILD_HOST="Abdul-Qadeer"
+export KBUILD_BUILD_USER="Qcloudfx"
+export KBUILD_BUILD_HOST="Abdul Qadeer"
 export KBUILD_BUILD_TIMESTAMP=$(TZ="Asia/Karachi" date)
 
 MAKE_ARGS="ARCH=arm64 \
@@ -56,7 +59,8 @@ MAKE_ARGS="ARCH=arm64 \
            NM=llvm-nm \
            OBJCOPY=llvm-objcopy \
            OBJDUMP=llvm-objdump \
-           STRIP=llvm-strip"
+           STRIP=llvm-strip \
+           KCFLAGS=-Wno-error"
 
 if [ "$1" == "j1" ]; then
     make $MAKE_ARGS -j1
@@ -87,6 +91,7 @@ else
     KSU_ENABLE=0
 fi
 
+echo "KERNEL_NAME: $KERNEL_NAME"
 echo "TARGET_DEVICE: $TARGET_DEVICE"
 
 # Dev's original KSU setup logic
@@ -97,11 +102,18 @@ else
     echo "KSU is disabled"
 fi
 
+# ------------- Fix: ufshcd unused-function -Werror (clang 16) -------------
+# Only touches drivers/scsi/ufs/ufshcd.c, safe to run multiple times.
+echo "Applying ufshcd unused-function fix..."
+sed -i 's/^static void ufshcd_add_cmd_upiu_trace(/static void __maybe_unused ufshcd_add_cmd_upiu_trace(/' drivers/scsi/ufs/ufshcd.c
+sed -i 's/^static void __ufshcd_cmd_log(/static void __maybe_unused __ufshcd_cmd_log(/' drivers/scsi/ufs/ufshcd.c
+grep -n "__maybe_unused" drivers/scsi/ufs/ufshcd.c | head -n 5 || true
+
 # Clear Previous Build
 rm -rf out/
 rm -rf anykernel/
 
-echo "Clone AnyKernel3 for packing Panoty-kernel"
+echo "Clone AnyKernel3 for packing $KERNEL_NAME"
 git clone https://github.com/aqbaloch6205/AnyKernel3.git -b master --single-branch --depth=1 anykernel
 
 # ------------- Building Kernel (Dev's Exact Logic) -------------
@@ -179,97 +191,6 @@ if [ ! -f "out/arch/arm64/boot/Image.gz" ] && [ -f "out/arch/arm64/boot/Image" ]
     echo "Generated integrated Image-dtb binary!"
 fi
 
-# Dev's exact Module processing logic
-if grep -q "CONFIG_MODULES=y" "out/.config"; then
-    echo "Compiling and installing modules..."
-    MODULES_OUT="$(pwd)/out/modules_out"
-    rm -rf "$MODULES_OUT"
-    
-    make $MAKE_ARGS INSTALL_MOD_PATH="$MODULES_OUT" modules_install
-
-    if [ -d "$MODULES_OUT/lib/modules" ]; then
-        echo "Translating kernel build footprints to exact stock firmware signatures..."
-        TARGET_KV_DIR=$(find "$MODULES_OUT/lib/modules" -mindepth 1 -maxdepth 1 -type d | head -n 1)
-        FLAT_STAGE="$MODULES_OUT/flat_modules"
-        mkdir -p "$FLAT_STAGE"
-
-        find "$TARGET_KV_DIR/kernel/techpack/audio" -name "*.ko" 2>/dev/null | while read -r audio_mod; do
-            base_name=$(basename "$audio_mod" ".ko")
-            if [ "$base_name" = "machine_dlkm" ]; then
-                cp "$audio_mod" "$FLAT_STAGE/audio_machine_kona.ko"
-            else
-                clean_name=$(echo "$base_name" | sed 's/_dlkm//')
-                cp "$audio_mod" "$FLAT_STAGE/audio_${clean_name}.ko"
-            fi
-        done
-
-        if [ -f "$TARGET_KV_DIR/kernel/drivers/staging/qcacld-3.0/wlan.ko" ]; then
-            cp "$TARGET_KV_DIR/kernel/drivers/staging/qcacld-3.0/wlan.ko" "$FLAT_STAGE/qca_cld3_qca6390.ko"
-        fi
-
-        find "$TARGET_KV_DIR/kernel" -name "*.ko" ! -path "*qcacld-3.0*" ! -path "*techpack/audio*" | while read -r misc_mod; do
-            base_name=$(basename "$misc_mod")
-            cp "$misc_mod" "$FLAT_STAGE/$base_name"
-        done
-
-        rm -rf "$TARGET_KV_DIR/kernel"
-        rm -f "$TARGET_KV_DIR"/source "$TARGET_KV_DIR"/build
-
-        mv "$FLAT_STAGE"/* "$TARGET_KV_DIR/"
-        rm -rf "$FLAT_STAGE"
-
-        find "$TARGET_KV_DIR" -name "*.ko" -type f -exec chmod 644 {} +
-
-        cat << 'EOF' > "$TARGET_KV_DIR/modules.dep"
-/vendor/lib/modules/audio_adsp_loader.ko: /vendor/lib/modules/audio_apr.ko /vendor/lib/modules/audio_q6_notifier.ko /vendor/lib/modules/audio_q6_pdr.ko /vendor/lib/modules/audio_snd_event.ko
-/vendor/lib/modules/audio_stub.ko:
-/vendor/lib/modules/audio_tx_macro.ko: /vendor/lib/modules/audio_swr_ctrl.ko /vendor/lib/modules/audio_swr.ko /vendor/lib/modules/audio_wcd_core.ko /vendor/lib/modules/audio_bolero_cdc.ko /vendor/lib/modules/audio_q6.ko /vendor/lib/modules/audio_apr.ko /vendor/lib/modules/audio_q6_notifier.ko /vendor/lib/modules/audio_q6_pdr.ko /vendor/lib/modules/audio_snd_event.ko
-/vendor/lib/modules/tcp_westwood.ko:
-/vendor/lib/modules/audio_wcd9xxx.ko: /vendor/lib/modules/audio_q6.ko /vendor/lib/modules/audio_apr.ko /vendor/lib/modules/audio_q6_notifier.ko /vendor/lib/modules/audio_q6_pdr.ko /vendor/lib/modules/audio_snd_event.ko
-/vendor/lib/modules/audio_q6_notifier.ko: /vendor/lib/modules/audio_q6_pdr.ko
-/vendor/lib/modules/audio_wcd_core.ko:
-/vendor/lib/modules/audio_wsa883x.ko: /vendor/lib/modules/audio_swr.ko /vendor/lib/modules/audio_wcd_core.ko
-/vendor/lib/modules/audio_snd_event.ko:
-/vendor/lib/modules/cxd22xx.ko:
-/vendor/lib/modules/audio_machine_kona.ko: /vendor/lib/modules/audio_wcd938x.ko /vendor/lib/modules/audio_mbhc.ko /vendor/lib/modules/audio_es9218.ko /vendor/lib/modules/audio_wcd9xxx.ko /vendor/lib/modules/audio_wsa881x.ko /vendor/lib/modules/audio_wsa883x.ko /vendor/lib/modules/audio_swr.ko /vendor/lib/modules/audio_wcd_core.ko /vendor/lib/modules/audio_bolero_cdc.ko /vendor/lib/modules/audio_q6.ko /vendor/lib/modules/audio_apr.ko /vendor/lib/modules/audio_q6_notifier.ko /vendor/lib/modules/audio_q6_pdr.ko /vendor/lib/modules/audio_snd_event.ko
-/vendor/lib/modules/audio_rx_macro.ko: /vendor/lib/modules/audio_swr_ctrl.ko /vendor/lib/modules/audio_swr.ko /vendor/lib/modules/audio_wcd_core.ko /vendor/lib/modules/audio_bolero_cdc.ko /vendor/lib/modules/audio_q6.ko /vendor/lib/modules/audio_apr.ko /vendor/lib/modules/audio_q6_notifier.ko /vendor/lib/modules/audio_q6_pdr.ko /vendor/lib/modules/audio_snd_event.ko
-/vendor/lib/modules/audio_wcd938x.ko: /vendor/lib/modules/audio_mbhc.ko /vendor/lib/modules/audio_es9218.ko /vendor/lib/modules/audio_wcd9xxx.ko /vendor/lib/modules/audio_swr.ko /vendor/lib/modules/audio_wcd_core.ko /vendor/lib/modules/audio_q6.ko /vendor/lib/modules/audio_apr.ko /vendor/lib/modules/audio_q6_notifier.ko /vendor/lib/modules/audio_q6_pdr.ko /vendor/lib/modules/audio_snd_event.ko
-/vendor/lib/modules/audio_swr_ctrl.ko: /vendor/lib/modules/audio_swr.ko /vendor/lib/modules/audio_q6.ko /vendor/lib/modules/audio_apr.ko /vendor/lib/modules/audio_q6_notifier.ko /vendor/lib/modules/audio_q6_pdr.ko /vendor/lib/modules/audio_snd_event.ko
-/vendor/lib/modules/audio_tfa9878.ko: /vendor/lib/modules/audio_q6.ko /vendor/lib/modules/audio_apr.ko /vendor/lib/modules/audio_q6_notifier.ko /vendor/lib/modules/audio_q6_pdr.ko /vendor/lib/modules/audio_snd_event.ko
-/vendor/lib/modules/audio_va_macro.ko: /vendor/lib/modules/audio_swr_ctrl.ko /vendor/lib/modules/audio_swr.ko /vendor/lib/modules/audio_wcd_core.ko /vendor/lib/modules/audio_bolero_cdc.ko /vendor/lib/modules/audio_q6.ko /vendor/lib/modules/audio_apr.ko /vendor/lib/modules/audio_q6_notifier.ko /vendor/lib/modules/audio_q6_pdr.ko /vendor/lib/modules/audio_snd_event.ko
-/vendor/lib/modules/audio_usf.ko: /vendor/lib/modules/audio_q6.ko /vendor/lib/modules/audio_apr.ko /vendor/lib/modules/audio_q6_notifier.ko /vendor/lib/modules/audio_q6_pdr.ko /vendor/lib/modules/audio_snd_event.ko
-/vendor/lib/modules/wmc_drv.ko:
-/vendor/lib/modules/audio_bolero_cdc.ko: /vendor/lib/modules/audio_q6.ko /vendor/lib/modules/audio_apr.ko /vendor/lib/modules/audio_q6_notifier.ko /vendor/lib/modules/audio_q6_pdr.ko /vendor/lib/modules/audio_snd_event.ko
-/vendor/lib/modules/rmnet_perf.ko:
-/vendor/lib/modules/audio_wsa_macro.ko: /vendor/lib/modules/audio_swr_ctrl.ko /vendor/lib/modules/audio_swr.ko /vendor/lib/modules/audio_wcd_core.ko /vendor/lib/modules/audio_bolero_cdc.ko /vendor/lib/modules/audio_q6.ko /vendor/lib/modules/audio_apr.ko /vendor/lib/modules/audio_q6_notifier.ko /vendor/lib/modules/audio_q6_pdr.ko /vendor/lib/modules/audio_snd_event.ko
-/vendor/lib/modules/audio_wcd938x_slave.ko: /vendor/lib/modules/audio_swr.ko
-/vendor/lib/modules/audio_apr.ko: /vendor/lib/modules/audio_q6_notifier.ko /vendor/lib/modules/audio_q6_pdr.ko /vendor/lib/modules/audio_snd_event.ko
-/vendor/lib/modules/tcp_htcp.ko:
-/vendor/lib/modules/audio_native.ko: /vendor/lib/modules/audio_platform.ko /vendor/lib/modules/audio_q6.ko /vendor/lib/modules/audio_apr.ko /vendor/lib/modules/audio_q6_notifier.ko /vendor/lib/modules/audio_q6_pdr.ko /vendor/lib/modules/audio_snd_event.ko
-/vendor/lib/modules/audio_platform.ko: /vendor/lib/modules/audio_q6.ko /vendor/lib/modules/audio_apr.ko /vendor/lib/modules/audio_q6_notifier.ko /vendor/lib/modules/audio_q6_pdr.ko /vendor/lib/modules/audio_snd_event.ko
-/vendor/lib/modules/audio_q6_pdr.ko:
-/vendor/lib/modules/audio_hdmi.ko:
-/vendor/lib/modules/audio_q6.ko: /vendor/lib/modules/audio_apr.ko /vendor/lib/modules/audio_q6_notifier.ko /vendor/lib/modules/audio_q6_pdr.ko /vendor/lib/modules/audio_snd_event.ko
-/vendor/lib/modules/audio_swr.ko:
-/vendor/lib/modules/qca_cld3_qca6390.ko:
-/vendor/lib/modules/audio_es9218.ko:
-/vendor/lib/modules/audio_pinctrl_lpi.ko: /vendor/lib/modules/audio_q6.ko /vendor/lib/modules/audio_apr.ko /vendor/lib/modules/audio_q6_notifier.ko /vendor/lib/modules/audio_q6_pdr.ko /vendor/lib/modules/audio_snd_event.ko
-/vendor/lib/modules/gspca_main.ko:
-/vendor/lib/modules/audio_wsa881x.ko: /vendor/lib/modules/audio_swr.ko /vendor/lib/modules/audio_wcd_core.ko
-/vendor/lib/modules/rmnet_shs.ko:
-/vendor/lib/modules/audio_mbhc.ko: /vendor/lib/modules/audio_es9218.ko
-/vendor/lib/modules/audio_pinctrl_wcd.ko:
-EOF
-
-        touch "$TARGET_KV_DIR/modules.alias" "$TARGET_KV_DIR/modules.softdep"
-        
-        echo "Copying Modules into AnyKernel modules directory..."
-        cp -r "$TARGET_KV_DIR"/* anykernel/modules/vendor/lib/modules/
-        chmod 644 anykernel/modules/vendor/lib/modules/*
-        echo "Modules Copied Successfully"
-    fi
-fi
-
 cp out/arch/arm64/boot/Image-dtb anykernel/
 cp out/arch/arm64/boot/dtb anykernel/
 
@@ -278,7 +199,7 @@ cd anykernel
 # Safely purge 'out' directory inside AnyKernel if present to prevent bloated zip size
 rm -rf out
 
-ZIP_FILENAME=Panoty_${TARGET_DEVICE}_${KSU_ZIP_STR}_$(date +'%Y%m%d_%H%M%S')_anykernel3.zip
+ZIP_FILENAME=${KERNEL_ZIP_NAME}_${TARGET_DEVICE}_${KSU_ZIP_STR}_$(date +'%Y%m%d_%H%M%S')_anykernel3.zip
 
 # Clean compression without extra folders
 zip -r9 $ZIP_FILENAME ./* -x ".git/*" ".gitignore" "*.zip"
@@ -287,5 +208,5 @@ mv $ZIP_FILENAME ../
 
 cd ..
 
-echo "Kernel Build Finished"
+echo "$KERNEL_NAME Build Finished"
 echo "Done. The flashable zip is: [./$ZIP_FILENAME]"
